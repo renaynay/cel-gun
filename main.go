@@ -4,6 +4,10 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/celestiaorg/celestia-node/share/shwap"
 	"github.com/celestiaorg/celestia-node/share/shwap/p2p/shrex"
 	shrexpb "github.com/celestiaorg/celestia-node/share/shwap/p2p/shrex/pb"
@@ -11,8 +15,10 @@ import (
 	libshare "github.com/celestiaorg/go-square/v2/share"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
-	"strings"
-	"sync"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/metric"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -24,6 +30,30 @@ import (
 	coreimport "github.com/yandex/pandora/core/import"
 	"github.com/yandex/pandora/core/register"
 )
+
+var (
+	meter          metric.Meter
+	requestLatency metric.Float64Histogram
+)
+
+func initMetrics() error {
+	exporter, err := prometheus.New()
+	if err != nil {
+		return fmt.Errorf("failed to create prometheus exporter: %w", err)
+	}
+
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(exporter))
+	otel.SetMeterProvider(provider)
+
+	meter = provider.Meter("cel-gun")
+
+	requestLatency, err = meter.Float64Histogram(
+		"request_latency_ms",
+		metric.WithDescription("Request latency in milliseconds"),
+		metric.WithUnit("ms"),
+	)
+	return err
+}
 
 type Gun struct {
 	GunDeps core.GunDeps
@@ -94,7 +124,7 @@ func (g *Gun) Shoot(ammo core.Ammo) {
 }
 
 func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
-	ns, err := hex.DecodeString("00000000000000000000000000000000000000005649410000000000")
+	ns, err := hex.DecodeString("")
 	if err != nil {
 		panic(err)
 	}
@@ -105,7 +135,7 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 
 	ndReq := shwap.NamespaceDataID{
 		EdsID: shwap.EdsID{
-			6072861,
+			Height: 6072861,
 		},
 		DataNamespace: namespace,
 	}
@@ -114,7 +144,7 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 		panic(err)
 	}
 
-	protocolID := "/arabica-11" + shrex.ProtocolString + shwap.NamespaceDataName
+	protocolID := "/mamo-1" + shrex.ProtocolString + shwap.NamespaceDataName
 
 	fmt.Println("SHOOTING FROM HOST: ", h.ID().String())
 
@@ -123,7 +153,9 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 		panic(err)
 	}
 
-	for {
+	for i := 0; i < 10; i++ {
+		startTime := time.Now()
+
 		_, err = stream.Write(bin)
 		if err != nil {
 			if strings.Contains(err.Error(), "stream reset") {
@@ -146,7 +178,13 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 			panic(err)
 		}
 
-		fmt.Println("got namespace data response: ", len(nd.Flatten()))
+		endTime := time.Since(startTime)
+		latencyMs := float64(endTime.Milliseconds())
+		responseBytes := int64(len(nd.Flatten()))
+
+		requestLatency.Record(ctx, latencyMs)
+
+		fmt.Println("got namespace data response: ", responseBytes, "      in ", latencyMs, " milliseconds")
 	}
 }
 
@@ -162,6 +200,10 @@ func main() {
 	coreimport.Import(fs)
 	// May not be imported, if you don't need http guns and etc.
 	phttp.Import(fs)
+
+	if err := initMetrics(); err != nil {
+		panic(fmt.Errorf("failed to initialize metrics: %w", err))
+	}
 
 	// Custom imports. Integrate your custom types into configuration system.
 	coreimport.RegisterCustomJSONProvider("custom_provider", func() core.Ammo { return &Ammo{} })

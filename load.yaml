@@ -2,16 +2,15 @@ pools:
   - id: libp2p pool
     gun:
       type: nd_gun
-      parallel: 16
+      parallel: 5
     ammo:
       type: custom_provider
       source:
         type: file
         path: ./ammo.txt
     result:
-      type: phout
-      destination: ./phout.log
-    rps: { duration: 30s, type: line, from: 40000, to: 50000 }
+      type: log
+    rps: { duration: 1m, type: line, from: 1, to: 10 }
     startup:
       type: once
       times: 1
