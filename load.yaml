@@ -1,26 +1,17 @@
-phantom:
-  enabled: false  # IDK if this needed
-pandora:
-  enabled: true
-  package: yandextank.plugins.Pandora
-  pandora_cmd: ./build/gun
-  config_content:
-    pools:
-      - id: libp2p pool
-        gun:
-          type: nd_gun
-          parallel: 16
-        ammo:
-          type: custom_provider
-          source:
-            type: file
-            path: ./ammo.txt
-        result:
-          type: phout
-          destination: ./phout.log
-        rps: { duration: 30s, type: line,from: 40000, to: 50000 }
-        startup:
-          type: once
-          times: 1
-    log:
-      level: error
+pools:
+  - id: libp2p pool
+    gun:
+      type: nd_gun
+      parallel: 16
+    ammo:
+      type: custom_provider
+      source:
+        type: file
+        path: ./ammo.txt
+    result:
+      type: phout
+      destination: ./phout.log
+    rps: { duration: 30s, type: line, from: 40000, to: 50000 }
+    startup:
+      type: once
+      times: 1

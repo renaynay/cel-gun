@@ -6,8 +6,12 @@ import (
 	"fmt"
 	"github.com/celestiaorg/celestia-node/share/shwap"
 	"github.com/celestiaorg/celestia-node/share/shwap/p2p/shrex"
+	shrexpb "github.com/celestiaorg/celestia-node/share/shwap/p2p/shrex/pb"
+	"github.com/celestiaorg/go-libp2p-messenger/serde"
+	libshare "github.com/celestiaorg/go-square/v2/share"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
+	"strings"
 	"sync"
 
 	"github.com/libp2p/go-libp2p"
@@ -27,7 +31,7 @@ type Gun struct {
 
 	conf GunConfig
 
-	host   host.Host
+	hosts  []host.Host
 	target peer.ID
 }
 
@@ -37,14 +41,18 @@ type GunConfig struct {
 }
 
 func NewGun(conf GunConfig) *Gun {
-	h, err := libp2p.New()
-	if err != nil {
-		panic(err)
+	hosts := make([]host.Host, conf.Parallel)
+	for i := 0; i < conf.Parallel; i++ {
+		h, err := libp2p.New()
+		if err != nil {
+			panic(err)
+		}
+		hosts[i] = h
 	}
 
 	return &Gun{
-		conf: conf,
-		host: h,
+		conf:  conf,
+		hosts: hosts,
 	}
 }
 
@@ -58,9 +66,11 @@ func (g *Gun) Bind(aggr core.Aggregator, deps core.GunDeps) error {
 	}
 	g.target = info.ID
 
-	err = g.host.Connect(ctx, *info)
-	if err != nil {
-		panic(err)
+	for _, h := range g.hosts {
+		err = h.Connect(ctx, *info)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	g.aggr = aggr
@@ -72,34 +82,43 @@ func (g *Gun) Shoot(ammo core.Ammo) {
 	customAmmo := ammo.(*Ammo)
 	var wg sync.WaitGroup
 	for i := 0; i < g.conf.Parallel; i++ {
-		wg.Add(1)
-		go g.shoot(context.Background(), customAmmo)
+		i := i
+		go func() {
+			fmt.Println("\n\n LAUNCHING::   ", i)
+			wg.Add(1)
+			g.shoot(context.Background(), customAmmo, g.hosts[i])
+			wg.Done()
+		}()
 	}
 	wg.Wait()
 }
 
-func (g *Gun) shoot(ctx context.Context, _ *Ammo) {
-	ns, err := hex.DecodeString("0000000000000000000000000000000000000000000000004365726f41")
+func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
+	ns, err := hex.DecodeString("00000000000000000000000000000000000000005649410000000000")
 	if err != nil {
 		panic(err)
 	}
-	roothash, err := hex.DecodeString("76A4524A20CC58991783163D4457BD3F3D11C11533AF7FD6A0722D3668C36F0D")
+	namespace, err := libshare.NewNamespace(0, ns)
 	if err != nil {
 		panic(err)
 	}
 
 	ndReq := shwap.NamespaceDataID{
-		Namespace: ns,
-		RootHash:  roothash,
+		EdsID: shwap.EdsID{
+			6072861,
+		},
+		DataNamespace: namespace,
 	}
-	bin, err := ndReq.Marshal()
+	bin, err := ndReq.MarshalBinary()
 	if err != nil {
 		panic(err)
 	}
 
-	protocolID := shrex.ProtocolString + shwap.NamespaceDataName
+	protocolID := "/arabica-11" + shrex.ProtocolString + shwap.NamespaceDataName
 
-	stream, err := g.host.NewStream(ctx, g.target, protocol.ID(protocolID))
+	fmt.Println("SHOOTING FROM HOST: ", h.ID().String())
+
+	stream, err := h.NewStream(ctx, g.target, protocol.ID(protocolID))
 	if err != nil {
 		panic(err)
 	}
@@ -107,8 +126,19 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo) {
 	for {
 		_, err = stream.Write(bin)
 		if err != nil {
+			if strings.Contains(err.Error(), "stream reset") {
+				continue
+			}
 			panic(err)
 		}
+
+		var resp shrexpb.Response
+		_, err := serde.Read(stream, &resp)
+		if err != nil {
+			fmt.Println("ERROR: ", err.Error())
+			continue
+		}
+		fmt.Println(" STATUS RESP: ", resp.Status.String())
 
 		nd := new(shwap.NamespaceData)
 		_, err = nd.ReadFrom(stream)
@@ -121,7 +151,6 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo) {
 }
 
 type Ammo struct {
-	NDRequest *ndtypes.GetSharesByNamespaceRequest
 }
 
 //var targetAddr = os.Getenv("CEL_GUN_TARGET_ADDR")
@@ -142,12 +171,11 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
+
 		return GunConfig{
-			Target:   addr,
-			Parallel: 16, // we choose this as the rate limiting middleware upper bound in shrex server
+			Target: addr,
 		}
 	})
-	register.Gun("my-custom/no-default", NewGun)
 
 	cli.Run()
 }
