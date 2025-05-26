@@ -124,7 +124,7 @@ func (g *Gun) Shoot(ammo core.Ammo) {
 }
 
 func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
-	ns, err := hex.DecodeString("")
+	ns, err := hex.DecodeString("00000000000000000000000000000000000000000000000088888888")
 	if err != nil {
 		panic(err)
 	}
@@ -135,7 +135,7 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 
 	ndReq := shwap.NamespaceDataID{
 		EdsID: shwap.EdsID{
-			Height: 6072861,
+			Height: 789563,
 		},
 		DataNamespace: namespace,
 	}
@@ -209,7 +209,7 @@ func main() {
 	coreimport.RegisterCustomJSONProvider("custom_provider", func() core.Ammo { return &Ammo{} })
 
 	register.Gun("nd_gun", NewGun, func() GunConfig {
-		addr, err := multiaddr.NewMultiaddr("/dnsaddr/da-bootstrapper-1.celestia-arabica-11.com/p2p/12D3KooWGqwzdEqM54Dce6LXzfFr97Bnhvm6rN7KM7MFwdomfm4S")
+		addr, err := multiaddr.NewMultiaddr("/dnsaddr/da-bridge-0.par.mamochain.com/p2p/12D3KooWNc3hDtzLvyKj8xbcE3SFMRy4uX5EojCScCuqYRrz4tzS")
 		if err != nil {
 			panic(err)
 		}
