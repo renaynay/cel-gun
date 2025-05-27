@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"github.com/libp2p/go-libp2p/core/network"
 	"strings"
 	"sync"
 	"time"
@@ -135,7 +136,7 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 
 	ndReq := shwap.NamespaceDataID{
 		EdsID: shwap.EdsID{
-			Height: 789563,
+			Height: 840353,
 		},
 		DataNamespace: namespace,
 	}
@@ -148,25 +149,35 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 
 	fmt.Println("SHOOTING FROM HOST: ", h.ID().String())
 
-	stream, err := h.NewStream(ctx, g.target, protocol.ID(protocolID))
-	if err != nil {
-		panic(err)
-	}
-
+	var stream network.Stream
 	for i := 0; i < 10; i++ {
 		startTime := time.Now()
+
+		if stream == nil {
+			stream, err = h.NewStream(ctx, g.target, protocol.ID(protocolID))
+			if err != nil {
+				panic(err)
+			}
+		}
 
 		_, err = stream.Write(bin)
 		if err != nil {
 			if strings.Contains(err.Error(), "stream reset") {
 				continue
 			}
-			panic(err)
+			if strings.Contains((err.Error()), "stream closed") {
+				stream = nil
+			}
+			continue
 		}
+		stream.CloseWrite()
 
 		var resp shrexpb.Response
 		_, err := serde.Read(stream, &resp)
 		if err != nil {
+			if strings.Contains((err.Error()), "stream closed") {
+				stream = nil
+			}
 			fmt.Println("ERROR: ", err.Error())
 			continue
 		}
@@ -175,8 +186,13 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 		nd := new(shwap.NamespaceData)
 		_, err = nd.ReadFrom(stream)
 		if err != nil {
-			panic(err)
+			if strings.Contains((err.Error()), "stream closed") {
+				stream = nil
+			}
+			fmt.Println("ERROR: ", err.Error())
+			continue
 		}
+		stream.CloseRead()
 
 		endTime := time.Since(startTime)
 		latencyMs := float64(endTime.Milliseconds())
@@ -209,7 +225,7 @@ func main() {
 	coreimport.RegisterCustomJSONProvider("custom_provider", func() core.Ammo { return &Ammo{} })
 
 	register.Gun("nd_gun", NewGun, func() GunConfig {
-		addr, err := multiaddr.NewMultiaddr("/dnsaddr/da-bridge-0.par.mamochain.com/p2p/12D3KooWNc3hDtzLvyKj8xbcE3SFMRy4uX5EojCScCuqYRrz4tzS")
+		addr, err := multiaddr.NewMultiaddr("/ip4/51.159.144.71/tcp/2121/p2p/12D3KooWLVXFhiPZdsgVazpmpfKBjAzUrnkLtUY6p6oHKcGjVuhp")
 		if err != nil {
 			panic(err)
 		}
