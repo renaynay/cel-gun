@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/libp2p/go-libp2p/core/network"
+	"go.uber.org/zap"
 	"strings"
 	"sync"
 	"time"
@@ -14,47 +15,17 @@ import (
 	shrexpb "github.com/celestiaorg/celestia-node/share/shwap/p2p/shrex/pb"
 	"github.com/celestiaorg/go-libp2p-messenger/serde"
 	libshare "github.com/celestiaorg/go-square/v2/share"
-	"github.com/libp2p/go-libp2p/core/protocol"
-	"github.com/multiformats/go-multiaddr"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/exporters/prometheus"
-	"go.opentelemetry.io/otel/metric"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/multiformats/go-multiaddr"
 	"github.com/spf13/afero"
 	"github.com/yandex/pandora/cli"
-	phttp "github.com/yandex/pandora/components/phttp/import"
 	"github.com/yandex/pandora/core"
 	coreimport "github.com/yandex/pandora/core/import"
 	"github.com/yandex/pandora/core/register"
 )
-
-var (
-	meter          metric.Meter
-	requestLatency metric.Float64Histogram
-)
-
-func initMetrics() error {
-	exporter, err := prometheus.New()
-	if err != nil {
-		return fmt.Errorf("failed to create prometheus exporter: %w", err)
-	}
-
-	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(exporter))
-	otel.SetMeterProvider(provider)
-
-	meter = provider.Meter("cel-gun")
-
-	requestLatency, err = meter.Float64Histogram(
-		"request_latency_ms",
-		metric.WithDescription("Request latency in milliseconds"),
-		metric.WithUnit("ms"),
-	)
-	return err
-}
 
 type Gun struct {
 	GunDeps core.GunDeps
@@ -115,7 +86,6 @@ func (g *Gun) Shoot(ammo core.Ammo) {
 	for i := 0; i < g.conf.Parallel; i++ {
 		i := i
 		go func() {
-			fmt.Println("\n\n LAUNCHING::   ", i)
 			wg.Add(1)
 			g.shoot(context.Background(), customAmmo, g.hosts[i])
 			wg.Done()
@@ -125,7 +95,7 @@ func (g *Gun) Shoot(ammo core.Ammo) {
 }
 
 func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
-	ns, err := hex.DecodeString("00000000000000000000000000000000000000000000000088888888")
+	ns, err := hex.DecodeString("0000000000000000000000000000000000000000726973652d646576")
 	if err != nil {
 		panic(err)
 	}
@@ -136,10 +106,11 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 
 	ndReq := shwap.NamespaceDataID{
 		EdsID: shwap.EdsID{
-			Height: 840353,
+			Height: 895225,
 		},
 		DataNamespace: namespace,
 	}
+
 	bin, err := ndReq.MarshalBinary()
 	if err != nil {
 		panic(err)
@@ -150,7 +121,7 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 	fmt.Println("SHOOTING FROM HOST: ", h.ID().String())
 
 	var stream network.Stream
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 5; i++ {
 		startTime := time.Now()
 
 		if stream == nil {
@@ -160,25 +131,32 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 			}
 		}
 
+		err = stream.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		if err != nil {
+			fmt.Println("set read deadline err: ", err.Error())
+		}
+
 		_, err = stream.Write(bin)
 		if err != nil {
-			if strings.Contains(err.Error(), "stream reset") {
-				continue
-			}
-			if strings.Contains((err.Error()), "stream closed") {
+			if strings.Contains(err.Error(), "stream reset") || strings.Contains((err.Error()), "stream closed") {
 				stream = nil
 			}
 			continue
 		}
 		stream.CloseWrite()
 
+		err = stream.SetReadDeadline(time.Now().Add(time.Minute))
+		if err != nil {
+			fmt.Println("set read deadline err: ", err.Error())
+		}
+
 		var resp shrexpb.Response
 		_, err := serde.Read(stream, &resp)
 		if err != nil {
-			if strings.Contains((err.Error()), "stream closed") {
+			if strings.Contains(err.Error(), "stream reset") || strings.Contains((err.Error()), "stream closed") {
 				stream = nil
 			}
-			fmt.Println("ERROR: ", err.Error())
+			fmt.Println("ERR reading shrexpb resp status from stream : ", err.Error())
 			continue
 		}
 		fmt.Println(" STATUS RESP: ", resp.Status.String())
@@ -186,40 +164,29 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 		nd := new(shwap.NamespaceData)
 		_, err = nd.ReadFrom(stream)
 		if err != nil {
-			if strings.Contains((err.Error()), "stream closed") {
+			if strings.Contains(err.Error(), "stream reset") || strings.Contains((err.Error()), "stream closed") {
 				stream = nil
 			}
-			fmt.Println("ERROR: ", err.Error())
+			fmt.Println("ERR reading nd from stream: ", err.Error())
 			continue
 		}
 		stream.CloseRead()
 
 		endTime := time.Since(startTime)
-		latencyMs := float64(endTime.Milliseconds())
+		latencySeconds := float64(endTime.Seconds())
 		responseBytes := int64(len(nd.Flatten()))
 
-		requestLatency.Record(ctx, latencyMs)
-
-		fmt.Println("got namespace data response: ", responseBytes, "      in ", latencyMs, " milliseconds")
+		fmt.Println("got namespace data response: ", responseBytes, "      in ", latencySeconds, " seconds")
 	}
 }
 
 type Ammo struct {
 }
 
-//var targetAddr = os.Getenv("CEL_GUN_TARGET_ADDR")
-
 func main() {
-	// debug.SetGCPercent(-1)
-	// Standard imports.
+	// Standard imports
 	fs := afero.NewOsFs()
 	coreimport.Import(fs)
-	// May not be imported, if you don't need http guns and etc.
-	phttp.Import(fs)
-
-	if err := initMetrics(); err != nil {
-		panic(fmt.Errorf("failed to initialize metrics: %w", err))
-	}
 
 	// Custom imports. Integrate your custom types into configuration system.
 	coreimport.RegisterCustomJSONProvider("custom_provider", func() core.Ammo { return &Ammo{} })
@@ -236,4 +203,13 @@ func main() {
 	})
 
 	cli.Run()
+
+	// suppress logs from pandora as they are not useful to me right now
+	cfg := zap.NewProductionConfig()
+	cfg.Level = zap.NewAtomicLevelAt(zap.ErrorLevel) // discard all INFO  logs from pandora
+	logger, err := cfg.Build()
+	if err != nil {
+		panic(err)
+	}
+	zap.ReplaceGlobals(logger)
 }
