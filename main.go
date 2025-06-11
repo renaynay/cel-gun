@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"github.com/libp2p/go-libp2p/core/network"
 	"go.uber.org/zap"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,8 +40,11 @@ type Gun struct {
 }
 
 type GunConfig struct {
-	Target   multiaddr.Multiaddr
-	Parallel int
+	ProtocolID  protocol.ID
+	Target      multiaddr.Multiaddr
+	Namespace   libshare.Namespace
+	StartHeight uint64 // TODO @renaynay: increment downwards
+	Parallel    int
 }
 
 func NewGun(conf GunConfig) *Gun {
@@ -95,28 +100,17 @@ func (g *Gun) Shoot(ammo core.Ammo) {
 }
 
 func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
-	ns, err := hex.DecodeString("0000000000000000000000000000000000000000726973652d646576")
-	if err != nil {
-		panic(err)
-	}
-	namespace, err := libshare.NewNamespace(0, ns)
-	if err != nil {
-		panic(err)
-	}
-
 	ndReq := shwap.NamespaceDataID{
 		EdsID: shwap.EdsID{
-			Height: 895225,
+			Height: g.conf.StartHeight,
 		},
-		DataNamespace: namespace,
+		DataNamespace: g.conf.Namespace,
 	}
 
 	bin, err := ndReq.MarshalBinary()
 	if err != nil {
 		panic(err)
 	}
-
-	protocolID := "/mamo-1" + shrex.ProtocolString + shwap.NamespaceDataName
 
 	fmt.Println("SHOOTING FROM HOST: ", h.ID().String())
 
@@ -125,7 +119,7 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 		startTime := time.Now()
 
 		if stream == nil {
-			stream, err = h.NewStream(ctx, g.target, protocol.ID(protocolID))
+			stream, err = h.NewStream(ctx, g.target, g.conf.ProtocolID)
 			if err != nil {
 				panic(err)
 			}
@@ -184,6 +178,16 @@ type Ammo struct {
 }
 
 func main() {
+	args := os.Args[1:]
+	networkID, targetMultiAddr, targetNS, height := args[0], args[1], args[2], args[3]
+
+	protocolID := networkID + shrex.ProtocolString + shwap.NamespaceDataName
+	ns := parseNS(targetNS)
+	startHeight, err := strconv.ParseUint(height, 10, 64)
+	if err != nil {
+		panic(err)
+	}
+
 	// Standard imports
 	fs := afero.NewOsFs()
 	coreimport.Import(fs)
@@ -192,13 +196,16 @@ func main() {
 	coreimport.RegisterCustomJSONProvider("custom_provider", func() core.Ammo { return &Ammo{} })
 
 	register.Gun("nd_gun", NewGun, func() GunConfig {
-		addr, err := multiaddr.NewMultiaddr("/ip4/51.159.144.71/tcp/2121/p2p/12D3KooWLVXFhiPZdsgVazpmpfKBjAzUrnkLtUY6p6oHKcGjVuhp")
+		addr, err := multiaddr.NewMultiaddr(targetMultiAddr)
 		if err != nil {
 			panic(err)
 		}
 
 		return GunConfig{
-			Target: addr,
+			ProtocolID:  protocol.ID(protocolID),
+			Target:      addr,
+			Namespace:   ns,
+			StartHeight: startHeight,
 		}
 	})
 
@@ -212,4 +219,16 @@ func main() {
 		panic(err)
 	}
 	zap.ReplaceGlobals(logger)
+}
+
+func parseNS(unparsed string) libshare.Namespace {
+	decodedNS, err := hex.DecodeString(unparsed)
+	if err != nil {
+		panic(err)
+	}
+	ns, err := libshare.NewNamespace(0, decodedNS)
+	if err != nil {
+		panic(err)
+	}
+	return ns
 }

@@ -1,3 +1,6 @@
+# this load file == 5 libp2p hosts shooting at the same time at a rate of 1 rps
+# -> 10 rps over the span of 1 min; at the end, there are 50 rps from 5 hosts
+# being spammed at BN
 pools:
   - id: libp2p pool
     gun:
