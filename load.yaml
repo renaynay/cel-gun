@@ -12,7 +12,15 @@ pools:
         type: file
         path: ./ammo.txt
     result:
-      type: log
+      type: jsonlines
+      sink:
+        type: file
+        path: file_path
+      buffer-size: 1048576
+      flush-interval: 1s
+      sample-queue-size: 131072
+      marshal-float-with-6-digits: false
+      sort-map-keys: false
     rps: { duration: 1m, type: line, from: 1, to: 10 }
     startup:
       type: once

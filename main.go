@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"github.com/libp2p/go-libp2p/core/network"
 	"go.uber.org/zap"
@@ -121,6 +122,11 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 		if stream == nil {
 			stream, err = h.NewStream(ctx, g.target, g.conf.ProtocolID)
 			if err != nil {
+				if errors.Is(err, network.ErrResourceLimitExceeded) {
+					fmt.Println("Local resource limit exceeded -- backoff: ", err.Error())
+					time.Sleep(100 * time.Millisecond)
+					continue
+				}
 				panic(err)
 			}
 		}
