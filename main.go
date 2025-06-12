@@ -178,8 +178,10 @@ type Ammo struct {
 }
 
 func main() {
-	args := os.Args[1:]
-	networkID, targetMultiAddr, targetNS, height := args[0], args[1], args[2], args[3]
+	networkID := os.Getenv("GUN_NETWORK")
+	targetMultiAddr := os.Getenv("GUN_TARGET")
+	targetNS := os.Getenv("GUN_NAMESPACE")
+	height := os.Getenv("GUN_HEIGHT")
 
 	protocolID := networkID + shrex.ProtocolString + shwap.NamespaceDataName
 	ns := parseNS(targetNS)
