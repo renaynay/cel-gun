@@ -159,8 +159,10 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 			continue
 		}
 		fmt.Println(" STATUS RESP: ", resp.Status.String())
-		if resp.Status != shrexpb.Status_OK  {
-			g.aggr.Report(Report{}),
+		if resp.Status != shrexpb.Status_OK {
+			g.aggr.Report(Report{
+				Fail: true,
+			})
 		}
 
 		nd := new(shwap.NamespaceData)
@@ -181,6 +183,7 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 		speed := float64(responseBytes) / latencyMilliseconds // bytes per second
 
 		g.aggr.Report(Report{
+			Fail:              false,
 			PayloadSize:       responseBytes,
 			TotalDownloadTime: latencyMilliseconds,
 			DownloadSpeed:     speed,
@@ -194,6 +197,7 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 type Ammo struct{}
 
 type Report struct {
+	Fail              bool    `json:"fail"`
 	PayloadSize       int64   `json:"payload_size"`
 	TotalDownloadTime float64 `json:"total_download_time"`
 	DownloadSpeed     float64 `json:"download_speed"` // bytes per second
