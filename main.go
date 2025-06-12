@@ -122,9 +122,8 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 		if stream == nil {
 			stream, err = h.NewStream(ctx, g.target, g.conf.ProtocolID)
 			if err != nil {
-				if errors.Is(err, network.ErrResourceLimitExceeded) {
-					fmt.Println("Local resource limit exceeded -- backoff: ", err.Error())
-					time.Sleep(100 * time.Millisecond)
+				if errors.Is(errors.Unwrap(err), network.ErrResourceLimitExceeded) {
+					time.Sleep(500 * time.Millisecond)
 					continue
 				}
 				panic(err)
@@ -160,6 +159,9 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 			continue
 		}
 		fmt.Println(" STATUS RESP: ", resp.Status.String())
+		if resp.Status != shrexpb.Status_OK  {
+			g.aggr.Report(Report{}),
+		}
 
 		nd := new(shwap.NamespaceData)
 		_, err = nd.ReadFrom(stream)
@@ -173,14 +175,29 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 		stream.CloseRead()
 
 		endTime := time.Since(startTime)
-		latencySeconds := float64(endTime.Seconds())
+		latencyMilliseconds := float64(endTime.Milliseconds())
 		responseBytes := int64(len(nd.Flatten()))
 
-		fmt.Println("got namespace data response: ", responseBytes, "      in ", latencySeconds, " seconds")
+		speed := float64(responseBytes) / latencyMilliseconds // bytes per second
+
+		g.aggr.Report(Report{
+			PayloadSize:       responseBytes,
+			TotalDownloadTime: latencyMilliseconds,
+			DownloadSpeed:     speed,
+			HostPID:           h.ID().String(),
+		})
+
+		fmt.Println("got namespace data response: ", responseBytes, "      in ", latencyMilliseconds, " ms")
 	}
 }
 
-type Ammo struct {
+type Ammo struct{}
+
+type Report struct {
+	PayloadSize       int64   `json:"payload_size"`
+	TotalDownloadTime float64 `json:"total_download_time"`
+	DownloadSpeed     float64 `json:"download_speed"` // bytes per second
+	HostPID           string  `json:"host_pid"`
 }
 
 func main() {

@@ -15,7 +15,7 @@ pools:
       type: jsonlines
       sink:
         type: file
-        path: file_path
+        path: ./result.txt
       buffer-size: 1048576
       flush-interval: 1s
       sample-queue-size: 131072
