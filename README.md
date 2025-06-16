@@ -9,4 +9,3 @@ Currently, it only supports load for `shrex-nd` on the `mammoth` testnet.
 - [ ] run against resource unlimited node to completion
 - [ ] make it extensible to any celestia protocol + any message type
 - [ ] allow more than one message to be sent (randomised messages w/ some bogus requests)
-- [ ] add proper telemetry rather than prints -- _optional_ decide whether worth it just to have a grafana pane
