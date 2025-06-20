@@ -161,7 +161,8 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 		fmt.Println(" STATUS RESP: ", resp.Status.String())
 		if resp.Status != shrexpb.Status_OK {
 			g.aggr.Report(Report{
-				Fail: true,
+				Fail:    true,
+				HostPID: h.ID().String(),
 			})
 		}
 
@@ -199,7 +200,7 @@ type Ammo struct{}
 type Report struct {
 	Fail              bool    `json:"fail"`
 	PayloadSize       int64   `json:"payload_size"`
-	TotalDownloadTime float64 `json:"total_download_time"`
+	TotalDownloadTime float64 `json:"total_download_time_ms"`
 	DownloadSpeed     float64 `json:"download_speed"` // bytes per second
 	HostPID           string  `json:"host_pid"`
 }
