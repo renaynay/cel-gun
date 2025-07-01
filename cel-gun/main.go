@@ -180,7 +180,7 @@ func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 
 	endTime := time.Since(startTime)
 	latencyMilliseconds := float64(endTime.Milliseconds())
-	responseBytes := int64(len(nd.Flatten()))
+	responseBytes := int64(len(nd.Flatten())) * 512
 
 	speed := float64(responseBytes) / latencyMilliseconds // bytes per ms
 
