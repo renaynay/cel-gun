@@ -89,11 +89,6 @@ func (g *Gun) Bind(aggr core.Aggregator, deps core.GunDeps) error {
 	return nil
 }
 
-type RoundReport struct {
-	TotalShots    int64  `json:"total_shots"`
-	CurrentHeight uint64 `json:"current_height"`
-}
-
 func (g *Gun) Shoot(ammo core.Ammo) {
 	customAmmo := ammo.(*Ammo)
 
@@ -102,11 +97,6 @@ func (g *Gun) Shoot(ammo core.Ammo) {
 	randIdx := rand.Intn(g.conf.Parallel)
 	g.shoot(context.Background(), customAmmo, g.hosts[randIdx])
 
-	g.aggr.Report(RoundReport{
-		TotalShots:    g.counter.Load(),
-		CurrentHeight: g.conf.StartHeight,
-	})
-
 	fmt.Println("-------------------------------------------------SHOT ROUND-------------------------------------------------")
 	fmt.Println("-------------------------------------------------decrementing height...-------------------------------------------------")
 
@@ -114,6 +104,19 @@ func (g *Gun) Shoot(ammo core.Ammo) {
 }
 
 func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
+	var err error
+
+	defer func() {
+		if err != nil {
+			g.aggr.Report(Report{
+				Fail:    true,
+				HostPID: h.ID().String(),
+			})
+			fmt.Println("Failed to get namespace data from host: ", h.ID().String(), " with error: ", err.Error())
+			return
+		}
+	}()
+
 	ndReq := shwap.NamespaceDataID{
 		EdsID: shwap.EdsID{
 			Height: g.conf.StartHeight,
