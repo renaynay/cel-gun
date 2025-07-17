@@ -105,7 +105,6 @@ func (g *Gun) Shoot(ammo core.Ammo) {
 
 func (g *Gun) shoot(ctx context.Context, _ *Ammo, h host.Host) {
 	var err error
-
 	defer func() {
 		if err != nil {
 			g.aggr.Report(Report{
